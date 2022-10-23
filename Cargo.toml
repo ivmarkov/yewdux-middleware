@@ -1,0 +1,15 @@
+[package]
+name = "yewdux-middleware"
+version = "0.1.0"
+edition = "2021"
+categories = ["yewdux", "yew", "ui"]
+keywords = ["yewdux", "yew", "ui"]
+description = "A Redux-like middleware for Yewdux."
+repository = "https://github.com/ivmarkov/yewdux-middleware"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+#forced-target = "wasm32-unknown-unknown"
+
+[dependencies]
+yewdux = "0.8.2"
+anymap = "0.12.1"
