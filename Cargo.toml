@@ -11,5 +11,5 @@ readme = "README.md"
 #forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
-yewdux = "0.8.2"
-anymap = "0.12.1"
+yewdux = "0.8.1"
+anymap = { version = "1.0.0-beta.2", git = "https://github.com/chris-morgan/anymap" }
