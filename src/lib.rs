@@ -113,6 +113,14 @@ pub mod dispatch {
 
     pub fn void<M>(_msg: M) {}
 
+    pub fn store<M, S>(msg: M)
+    where
+        M: yewdux::prelude::Reducer<S>,
+        S: yewdux::prelude::Store,
+    {
+        yewdux::dispatch::apply(msg);
+    }
+
     thread_local! {
         static REGISTRY: RefCell<AnyMap> = RefCell::new(AnyMap::new());
     }
