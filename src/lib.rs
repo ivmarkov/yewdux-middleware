@@ -2,12 +2,12 @@ use std::rc::Rc;
 
 pub use yewdux::prelude::{Reducer, Store};
 
-pub use self::dispatch::Dispatch;
-pub use self::functional::use_store;
+pub use self::dispatch::MiddlewareDispatch;
+pub use self::functional::use_store_value;
 
 pub trait Middleware<M, D>
 where
-    D: Dispatch<M>,
+    D: MiddlewareDispatch<M>,
 {
     fn invoke(&self, msg: M, dispatch: D);
 }
@@ -15,7 +15,7 @@ where
 impl<M, L, D> Middleware<M, D> for Rc<L>
 where
     L: Middleware<M, D>,
-    D: Dispatch<M>,
+    D: MiddlewareDispatch<M>,
 {
     fn invoke(&self, msg: M, dispatch: D) {
         (**self).invoke(msg, dispatch);
@@ -24,7 +24,7 @@ where
 
 impl<M, D> Middleware<M, D> for Rc<dyn Middleware<M, D>>
 where
-    D: Dispatch<M>,
+    D: MiddlewareDispatch<M>,
 {
     fn invoke(&self, msg: M, dispatch: D) {
         (**self).invoke(msg, dispatch);
@@ -33,7 +33,7 @@ where
 
 impl<M, D, F> Middleware<M, D> for F
 where
-    D: Dispatch<M>,
+    D: MiddlewareDispatch<M>,
     F: Fn(M, D),
 {
     fn invoke(&self, msg: M, dispatch: D) {
@@ -46,7 +46,7 @@ mod functional {
 
     use yewdux::store::Store;
 
-    pub fn use_store<S: Store>() -> Rc<S> {
+    pub fn use_store_value<S: Store>() -> Rc<S> {
         let (store, _) = yewdux::prelude::use_store();
 
         store
@@ -62,7 +62,7 @@ pub mod dispatch {
 
     use super::Middleware;
 
-    pub trait Dispatch<M> {
+    pub trait MiddlewareDispatch<M> {
         fn invoke(&self, msg: M);
 
         fn fuse<L>(self, middleware: L) -> CompositeDispatch<L, Self>
@@ -74,22 +74,22 @@ pub mod dispatch {
         }
     }
 
-    impl<M, D> Dispatch<M> for Rc<D>
+    impl<M, D> MiddlewareDispatch<M> for Rc<D>
     where
-        D: Dispatch<M>,
+        D: MiddlewareDispatch<M>,
     {
         fn invoke(&self, msg: M) {
             (**self).invoke(msg);
         }
     }
 
-    impl<M> Dispatch<M> for Rc<dyn Dispatch<M>> {
+    impl<M> MiddlewareDispatch<M> for Rc<dyn MiddlewareDispatch<M>> {
         fn invoke(&self, msg: M) {
             (**self).invoke(msg);
         }
     }
 
-    impl<M, F> Dispatch<M> for F
+    impl<M, F> MiddlewareDispatch<M> for F
     where
         F: Fn(M),
     {
@@ -101,10 +101,10 @@ pub mod dispatch {
     #[derive(Clone)]
     pub struct CompositeDispatch<L, D>(L, D);
 
-    impl<M, L, D> Dispatch<M> for CompositeDispatch<L, D>
+    impl<M, L, D> MiddlewareDispatch<M> for CompositeDispatch<L, D>
     where
         L: Middleware<M, D>,
-        D: Dispatch<M> + Clone,
+        D: MiddlewareDispatch<M> + Clone,
     {
         fn invoke(&self, msg: M) {
             self.0.invoke(msg, self.1.clone());
@@ -125,7 +125,7 @@ pub mod dispatch {
         static REGISTRY: RefCell<AnyMap> = RefCell::new(AnyMap::new());
     }
 
-    struct RegistryEntry<M>(Rc<dyn Dispatch<M>>);
+    struct RegistryEntry<M>(Rc<dyn MiddlewareDispatch<M>>);
 
     pub fn invoke<M>(msg: M)
     where
@@ -134,7 +134,7 @@ pub mod dispatch {
         get::<M>().invoke(msg);
     }
 
-    pub fn get<M>() -> impl Dispatch<M>
+    pub fn get<M>() -> impl MiddlewareDispatch<M>
     where
         M: 'static,
     {
@@ -154,7 +154,7 @@ pub mod dispatch {
 
     pub fn register<M, D>(dispatch: D)
     where
-        D: Dispatch<M> + 'static,
+        D: MiddlewareDispatch<M> + 'static,
         M: 'static,
     {
         REGISTRY.with(|registry| {
