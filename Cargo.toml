@@ -11,5 +11,5 @@ readme = "README.md"
 #forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
-yewdux = "0.8.3"
-anymap = "1.0-beta2"
+yewdux = { version = "0.8.3", default-features = false }
+anymap = "1.0.0-beta.2"
