@@ -23,6 +23,8 @@ jobs:
         with:
           toolchain: ${{ env.rust_toolchain }}
           components: rustfmt, clippy
+      - name: Setup | Set toolchain
+        run: rustup default ${{ env.rust_toolchain }}
       - name: Build | Fmt Check
         run: cargo fmt -- --check
       - name: Add wasm target
