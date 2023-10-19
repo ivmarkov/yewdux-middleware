@@ -44,8 +44,10 @@ where
 mod functional {
     use std::rc::Rc;
 
+    use yew::hook;
     use yewdux::store::Store;
 
+    #[hook]
     pub fn use_store_value<S: Store>() -> Rc<S> {
         let (store, _) = yewdux::prelude::use_store();
 
@@ -118,7 +120,7 @@ pub mod dispatch {
         M: yewdux::prelude::Reducer<S>,
         S: yewdux::prelude::Store,
     {
-        yewdux::dispatch::apply(msg);
+        yewdux::dispatch::reduce(move |state| msg.apply(state));
     }
 
     thread_local! {
