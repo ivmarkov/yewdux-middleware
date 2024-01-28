@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use context::MiddlewareContext;
 pub use yewdux::prelude::{Reducer, Store};
 
-pub use self::dispatch::MiddlewareDispatch;
-pub use self::functional::use_mcx;
+pub use self::context::*;
+pub use self::dispatch::*;
+pub use self::functional::*;
 
 pub trait Middleware<M, D>
 where
@@ -42,7 +42,7 @@ where
     }
 }
 
-pub mod context {
+mod context {
     use std::rc::Rc;
 
     use anymap::AnyMap;
@@ -130,7 +130,7 @@ pub mod context {
     struct RegistryEntry<M>(Rc<dyn MiddlewareDispatch<M>>);
 }
 
-pub mod context_provider {
+mod context_provider {
     use yew::prelude::*;
 
     use crate::context;
@@ -151,7 +151,7 @@ pub mod context_provider {
     }
 }
 
-pub mod dispatch {
+mod dispatch {
     use std::rc::Rc;
 
     use crate::context::MiddlewareContext;
