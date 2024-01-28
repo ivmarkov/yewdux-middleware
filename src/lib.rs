@@ -1,15 +1,16 @@
 use std::rc::Rc;
 
+use context::MiddlewareContext;
 pub use yewdux::prelude::{Reducer, Store};
 
 pub use self::dispatch::MiddlewareDispatch;
-pub use self::functional::use_store_value;
+pub use self::functional::use_mcx;
 
 pub trait Middleware<M, D>
 where
     D: MiddlewareDispatch<M>,
 {
-    fn invoke(&self, msg: M, dispatch: D);
+    fn invoke(&self, mcx: &MiddlewareContext, msg: M, dispatch: D);
 }
 
 impl<M, L, D> Middleware<M, D> for Rc<L>
@@ -17,8 +18,8 @@ where
     L: Middleware<M, D>,
     D: MiddlewareDispatch<M>,
 {
-    fn invoke(&self, msg: M, dispatch: D) {
-        (**self).invoke(msg, dispatch);
+    fn invoke(&self, mcx: &MiddlewareContext, msg: M, dispatch: D) {
+        (**self).invoke(mcx, msg, dispatch);
     }
 }
 
@@ -26,46 +27,139 @@ impl<M, D> Middleware<M, D> for Rc<dyn Middleware<M, D>>
 where
     D: MiddlewareDispatch<M>,
 {
-    fn invoke(&self, msg: M, dispatch: D) {
-        (**self).invoke(msg, dispatch);
+    fn invoke(&self, mcx: &MiddlewareContext, msg: M, dispatch: D) {
+        (**self).invoke(mcx, msg, dispatch);
     }
 }
 
 impl<M, D, F> Middleware<M, D> for F
 where
     D: MiddlewareDispatch<M>,
-    F: Fn(M, D),
+    F: Fn(&MiddlewareContext, M, D),
 {
-    fn invoke(&self, msg: M, dispatch: D) {
-        (self)(msg, dispatch);
+    fn invoke(&self, mcx: &MiddlewareContext, msg: M, dispatch: D) {
+        (self)(mcx, msg, dispatch);
     }
 }
 
-mod functional {
+pub mod context {
     use std::rc::Rc;
 
-    use yew::hook;
-    use yewdux::store::Store;
+    use anymap::AnyMap;
+    use yewdux::{mrc::Mrc, Context};
 
-    #[hook]
-    pub fn use_store_value<S: Store>() -> Rc<S> {
-        let (store, _) = yewdux::prelude::use_store();
+    use crate::MiddlewareDispatch;
 
-        store
+    #[derive(Clone, Default, PartialEq)]
+    pub struct MiddlewareContext {
+        context: Context,
+        registry: Mrc<AnyMap>,
+    }
+
+    impl MiddlewareContext {
+        #[cfg(any(doc, feature = "doctests", target_arch = "wasm32"))]
+        pub fn global() -> Self {
+            thread_local! {
+                static CONTEXT: MiddlewareContext = MiddlewareContext {
+                    context: Context::global(),
+                    registry: Mrc::new(AnyMap::new()),
+                };
+            }
+
+            CONTEXT
+                .try_with(|cx| cx.clone())
+                .expect("CONTEXT thread local key init failed")
+        }
+
+        pub fn new() -> Self {
+            Self {
+                context: Context::new(),
+                registry: Mrc::new(AnyMap::new()),
+            }
+        }
+
+        pub fn context(&self) -> &Context {
+            &self.context
+        }
+
+        pub fn void<M>(&self, _msg: M) {}
+
+        pub fn store<M, S>(&self, msg: M)
+        where
+            M: yewdux::prelude::Reducer<S>,
+            S: yewdux::prelude::Store,
+        {
+            self.context.reduce(move |state| msg.apply(state));
+        }
+
+        pub fn invoke<M>(&self, msg: M)
+        where
+            M: 'static,
+        {
+            self.get::<M>().invoke(self, msg);
+        }
+
+        pub fn get<M>(&self) -> impl MiddlewareDispatch<M>
+        where
+            M: 'static,
+        {
+            let dispatch = self
+                .registry
+                .borrow()
+                .get::<RegistryEntry<M>>()
+                .map(|value| value.0.clone());
+
+            if let Some(dispatch) = dispatch {
+                dispatch
+            } else {
+                panic!("No registered dispatch for type")
+            }
+        }
+
+        pub fn register<M, D>(&self, dispatch: D)
+        where
+            D: MiddlewareDispatch<M> + 'static,
+            M: 'static,
+        {
+            self.registry
+                .borrow_mut()
+                .insert(RegistryEntry(Rc::new(dispatch)));
+        }
+    }
+
+    struct RegistryEntry<M>(Rc<dyn MiddlewareDispatch<M>>);
+}
+
+pub mod context_provider {
+    use yew::prelude::*;
+
+    use crate::context;
+
+    #[derive(PartialEq, Clone, Properties)]
+    pub struct Props {
+        pub children: Children,
+    }
+
+    #[function_component]
+    pub fn YewduxMiddlewareRoot(Props { children }: &Props) -> Html {
+        let mcx = use_state(context::MiddlewareContext::new);
+        html! {
+            <ContextProvider<context::MiddlewareContext> context={(*mcx).clone()}>
+                { children.clone() }
+            </ContextProvider<context::MiddlewareContext>>
+        }
     }
 }
 
 pub mod dispatch {
-    use core::cell::RefCell;
-
     use std::rc::Rc;
 
-    use anymap::AnyMap;
+    use crate::context::MiddlewareContext;
 
     use super::Middleware;
 
     pub trait MiddlewareDispatch<M> {
-        fn invoke(&self, msg: M);
+        fn invoke(&self, mcx: &MiddlewareContext, msg: M);
 
         fn fuse<L>(self, middleware: L) -> CompositeDispatch<L, Self>
         where
@@ -80,23 +174,23 @@ pub mod dispatch {
     where
         D: MiddlewareDispatch<M>,
     {
-        fn invoke(&self, msg: M) {
-            (**self).invoke(msg);
+        fn invoke(&self, mcx: &MiddlewareContext, msg: M) {
+            (**self).invoke(mcx, msg);
         }
     }
 
     impl<M> MiddlewareDispatch<M> for Rc<dyn MiddlewareDispatch<M>> {
-        fn invoke(&self, msg: M) {
-            (**self).invoke(msg);
+        fn invoke(&self, mcx: &MiddlewareContext, msg: M) {
+            (**self).invoke(mcx, msg);
         }
     }
 
     impl<M, F> MiddlewareDispatch<M> for F
     where
-        F: Fn(M),
+        F: Fn(&MiddlewareContext, M),
     {
-        fn invoke(&self, msg: M) {
-            (self)(msg);
+        fn invoke(&self, mcx: &MiddlewareContext, msg: M) {
+            (self)(mcx, msg);
         }
     }
 
@@ -108,61 +202,28 @@ pub mod dispatch {
         L: Middleware<M, D>,
         D: MiddlewareDispatch<M> + Clone,
     {
-        fn invoke(&self, msg: M) {
-            self.0.invoke(msg, self.1.clone());
+        fn invoke(&self, mcx: &MiddlewareContext, msg: M) {
+            self.0.invoke(mcx, msg, self.1.clone());
         }
     }
+}
 
-    pub fn void<M>(_msg: M) {}
+mod functional {
+    use yew::{hook, use_context};
 
-    pub fn store<M, S>(msg: M)
-    where
-        M: yewdux::prelude::Reducer<S>,
-        S: yewdux::prelude::Store,
-    {
-        yewdux::dispatch::reduce(move |state| msg.apply(state));
-    }
+    use crate::context::MiddlewareContext;
 
-    thread_local! {
-        static REGISTRY: RefCell<AnyMap> = RefCell::new(AnyMap::new());
-    }
-
-    struct RegistryEntry<M>(Rc<dyn MiddlewareDispatch<M>>);
-
-    pub fn invoke<M>(msg: M)
-    where
-        M: 'static,
-    {
-        get::<M>().invoke(msg);
-    }
-
-    pub fn get<M>() -> impl MiddlewareDispatch<M>
-    where
-        M: 'static,
-    {
-        let dispatch = REGISTRY.with(|registry| {
-            registry
-                .borrow()
-                .get::<RegistryEntry<M>>()
-                .map(|value| value.0.clone())
-        });
-
-        if let Some(dispatch) = dispatch {
-            dispatch
-        } else {
-            panic!("No registered dispatch for type")
+    #[hook]
+    pub fn use_mcx() -> MiddlewareContext {
+        #[cfg(target_arch = "wasm32")]
+        {
+            use_context::<crate::context::MiddlewareContext>()
+                .unwrap_or_else(crate::context::MiddlewareContext::global)
         }
-    }
-
-    pub fn register<M, D>(dispatch: D)
-    where
-        D: MiddlewareDispatch<M> + 'static,
-        M: 'static,
-    {
-        REGISTRY.with(|registry| {
-            registry
-                .borrow_mut()
-                .insert(RegistryEntry(Rc::new(dispatch)));
-        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use_context::<crate::context::MiddlewareContext>()
+                .expect("YewduxMiddlewareRoot not found")
+        }
     }
 }
