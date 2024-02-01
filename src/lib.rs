@@ -3,6 +3,7 @@ use std::rc::Rc;
 pub use yewdux::prelude::{Reducer, Store};
 
 pub use self::context::*;
+pub use self::context_provider::*;
 pub use self::dispatch::*;
 pub use self::functional::*;
 
@@ -112,7 +113,10 @@ mod context {
             if let Some(dispatch) = dispatch {
                 dispatch
             } else {
-                panic!("No registered dispatch for type")
+                panic!(
+                    "No registered dispatch for type `{}`",
+                    std::any::type_name::<M>()
+                );
             }
         }
 
